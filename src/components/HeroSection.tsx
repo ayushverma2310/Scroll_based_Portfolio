@@ -5,7 +5,14 @@ import { useScroll, useMotionValueEvent } from 'framer-motion';
 export default function HeroSection() {
   const outerRef = useRef<HTMLDivElement>(null);
   const videoRef = useRef<HTMLVideoElement>(null);
-  const [isMobile, setIsMobile] = useState(false);
+  // Lazily determined on first render (this is a client-only SPA, so `window` is
+  // always available here) rather than defaulting to false and correcting in an
+  // effect. iOS Safari only honors the `autoplay` attribute if it's present when
+  // the <video> element is first created — flipping isMobile (and therefore which
+  // <video> branch is rendered) after mount does not retroactively start playback.
+  const [isMobile, setIsMobile] = useState(
+    () => window.innerWidth < 768 || 'ontouchstart' in window
+  );
   const [metaReady, setMetaReady] = useState(false);
 
   const { scrollYProgress } = useScroll({
@@ -15,10 +22,16 @@ export default function HeroSection() {
 
   useEffect(() => {
     const check = () => setIsMobile(window.innerWidth < 768 || 'ontouchstart' in window);
-    check();
     window.addEventListener('resize', check);
     return () => window.removeEventListener('resize', check);
   }, []);
+
+  // Belt-and-suspenders: explicitly kick off playback on mobile in case the
+  // browser doesn't autoplay on load (e.g. isMobile flips true after a resize).
+  useEffect(() => {
+    if (!isMobile) return;
+    videoRef.current?.play().catch(() => {});
+  }, [isMobile]);
 
   useEffect(() => {
     const v = videoRef.current;
