@@ -3,8 +3,8 @@ import {
   motion,
   useScroll,
   useTransform,
+  useSpring,
   useReducedMotion,
-  type MotionValue,
 } from 'framer-motion';
 import FadeIn from './FadeIn';
 
@@ -35,70 +35,67 @@ function VideoPanel({
   title,
   index,
   total,
-  containerProgress,
 }: {
   src: string;
   title: string;
   index: number;
   total: number;
-  containerProgress: MotionValue<number>;
 }) {
+  const sectionRef = useRef<HTMLElement>(null);
   const videoRef = useRef<HTMLVideoElement>(null);
   const reducedMotion = useReducedMotion();
-  const isLast = index === total - 1;
 
-  // Autoplay: subscribe to container scroll progress, play only the active panel.
-  // IntersectionObserver is unreliable for sticky panels (they stay "intersecting"
-  // once pinned), so we derive the active index from scroll position instead.
+  // IntersectionObserver autoplay
   useEffect(() => {
+    const section = sectionRef.current;
     const video = videoRef.current;
-    if (!video) return;
+    if (!section || !video) return;
 
-    const checkActive = (p: number) => {
-      const active = Math.min(Math.floor(p * total), total - 1);
-      if (active === index) {
-        video.play().catch(() => {});
-      } else {
-        video.pause();
-      }
-    };
+    const observer = new IntersectionObserver(
+      ([entry]) => {
+        if (entry.isIntersecting) {
+          video.play().catch(() => {});
+        } else {
+          video.pause();
+        }
+      },
+      { threshold: 0.6 }
+    );
 
-    // Sync immediately in case progress already has a value (e.g. back-navigation)
-    checkActive(containerProgress.get());
-    const unsub = containerProgress.on('change', checkActive);
-    return unsub;
-  }, [containerProgress, index, total]);
+    observer.observe(section);
+    return () => observer.disconnect();
+  }, []);
 
-  // Scale + dim: panel i gets covered as panel i+1 rises over it.
-  // This transition spans the container's scroll segment [i/total, (i+1)/total].
-  // The last panel is never covered, so its transforms are no-ops.
-  const segStart = index / total;
-  const segEnd = (index + 1) / total;
+  // Parallax: track the panel as it moves through the viewport
+  const { scrollYProgress } = useScroll({
+    target: sectionRef,
+    offset: ['start end', 'end start'],
+  });
 
-  const scale = useTransform(
-    containerProgress,
-    [segStart, segEnd],
-    isLast ? [1, 1] : [1, 0.94]
+  const rawY = useTransform(scrollYProgress, [0, 0.5, 1], [120, 0, -120]);
+  const rawOpacity = useTransform(
+    scrollYProgress,
+    [0, 0.2, 0.8, 1],
+    [0.4, 1, 1, 0.4]
   );
-  const brightness = useTransform(
-    containerProgress,
-    [segStart, segEnd],
-    isLast ? [1, 1] : [1, 0.5]
-  );
-  const filterValue = useTransform(brightness, (b) => `brightness(${b})`);
 
-  const applyEffects = !reducedMotion && !isLast;
+  const springY = useSpring(rawY, { stiffness: 120, damping: 25 });
+
+  const y = reducedMotion ? 0 : springY;
+  const opacity = reducedMotion ? 1 : rawOpacity;
 
   const counter = `${String(index + 1).padStart(2, '0')} / ${String(total).padStart(2, '0')}`;
 
   return (
     <section
-      className="sticky top-0 h-screen w-full overflow-hidden rounded-t-[40px] sm:rounded-t-[50px] md:rounded-t-[60px] relative"
-      style={{ background: '#0c0c0c', zIndex: index + 1 }}
+      ref={sectionRef}
+      className="h-screen w-full flex flex-col items-center justify-center px-4 py-16 relative overflow-hidden"
+      style={{ background: '#0c0c0c', scrollSnapAlign: 'start' }}
     >
+      {/* parallax wrapper — only this moves, not the section */}
       <motion.div
-        className="w-full h-full flex flex-col items-center justify-center gap-6 px-4 py-16"
-        style={applyEffects ? { scale, filter: filterValue } : {}}
+        style={{ y, opacity }}
+        className="flex flex-col items-center gap-6"
       >
         {/* golden frame around video */}
         <div
@@ -147,7 +144,7 @@ function VideoPanel({
         </div>
       </motion.div>
 
-      {/* counter — stays outside the scaling wrapper so it doesn't shrink */}
+      {/* counter — top right, outside the parallax wrapper */}
       <span
         className="absolute top-6 right-6 font-light tracking-widest"
         style={{ color: '#D7E2EA', fontSize: 'clamp(0.75rem, 1.2vw, 1rem)', opacity: 0.5 }}
@@ -159,21 +156,15 @@ function VideoPanel({
 }
 
 export default function WorkSection() {
-  const containerRef = useRef<HTMLDivElement>(null);
-
-  // (WORK.length + 1) * 100vh height gives exactly WORK.length equal scroll
-  // segments of 100vh each, so segment i maps cleanly to progress [i/N, (i+1)/N].
-  const { scrollYProgress: containerProgress } = useScroll({
-    target: containerRef,
-    offset: ['start start', 'end end'],
-  });
-
   return (
-    <div id="work" style={{ background: '#0c0c0c' }}>
-      {/* "Work" heading — normal flow, scrolls away before the stack begins */}
+    <div
+      id="work"
+      style={{ background: '#0c0c0c', scrollSnapType: 'y proximity' }}
+    >
+      {/* "Work" heading panel */}
       <section
-        className="h-screen w-full flex items-center justify-center"
-        style={{ background: '#0c0c0c' }}
+        className="w-full flex items-center justify-center"
+        style={{ height: '100svh', background: '#0c0c0c', scrollSnapAlign: 'start' }}
       >
         <FadeIn>
           <h2
@@ -185,22 +176,15 @@ export default function WorkSection() {
         </FadeIn>
       </section>
 
-      {/* Sticky stack container */}
-      <div
-        ref={containerRef}
-        style={{ height: `${(WORK.length + 1) * 100}vh` }}
-      >
-        {WORK.map((item, i) => (
-          <VideoPanel
-            key={i}
-            src={item.src}
-            title={item.title}
-            index={i}
-            total={WORK.length}
-            containerProgress={containerProgress}
-          />
-        ))}
-      </div>
+      {WORK.map((item, i) => (
+        <VideoPanel
+          key={i}
+          src={item.src}
+          title={item.title}
+          index={i}
+          total={WORK.length}
+        />
+      ))}
     </div>
   );
 }

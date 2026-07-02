@@ -1,6 +1,7 @@
 import HeroSection from './components/HeroSection';
 import BioSection from './components/BioSection';
 import WorkSection from './components/WorkSection';
+import CareerSection from './components/CareerSection';
 import AboutSection from './components/AboutSection';
 import MusicToggle from './components/MusicToggle';
 
@@ -16,6 +17,7 @@ export default function App() {
       <HeroSection />
       <BioSection />
       <WorkSection />
+      <CareerSection />
       <AboutSection />
       <MusicToggle />
     </div>
